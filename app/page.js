@@ -8,8 +8,22 @@ import Dashboard from '@/components/Dashboard'
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [demoMode, setDemoMode] = useState(false)
 
   useEffect(() => {
+    // Check for demo mode
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('demo') === 'true') {
+      setDemoMode(true)
+      setUser({ 
+        id: 'demo-user',
+        email: 'demo@guedes.com',
+        user_metadata: { name: 'Dr. Demo Advogado', oab: 'PE 00000' }
+      })
+      setLoading(false)
+      return
+    }
+
     // Check active session
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
