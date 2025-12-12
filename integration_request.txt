@@ -1,0 +1,2 @@
+INTEGRATION: Supabase
+CONSTRAINTS: Need authentication (sign up, sign in, sign out), database operations (CRUD), and file storage for a law firm management system. Using Next.js 14 App Router.
