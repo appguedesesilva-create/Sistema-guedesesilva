@@ -19,13 +19,48 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  Calendar
+  Calendar,
+  Edit,
+  Trash2,
+  Archive,
+  MoreHorizontal
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+
+const TASK_TYPES = [
+  { value: 'judicial', label: 'Judicial' },
+  { value: 'extrajudicial', label: 'Extrajudicial' },
+  { value: 'administrative', label: 'Administrativa' },
+  { value: 'other', label: 'Outras' }
+]
+
+const JUDICIAL_AREAS = [
+  { value: 'previdenciario', label: 'Previdenciário' },
+  { value: 'trabalhista', label: 'Trabalhista' },
+  { value: 'saude', label: 'Saúde' },
+  { value: 'familia', label: 'Família' },
+  { value: 'criminal', label: 'Criminal' },
+  { value: 'consumidor', label: 'Consumidor' },
+  { value: 'empresarial', label: 'Empresarial' },
+  { value: 'civel', label: 'Cível' },
+  { value: 'tributario', label: 'Tributário' },
+  { value: 'ambiental', label: 'Ambiental' },
+  { value: 'eleitoral', label: 'Eleitoral' },
+  { value: 'digital', label: 'Digital/Tecnológico' },
+  { value: 'juizado', label: 'Juizado Especial' },
+  { value: 'outro', label: 'Outro' }
+]
 
 export default function WorkspacePage({ user }) {
   const [tasks, setTasks] = useState([])
   const [clients, setClients] = useState([])
   const [processes, setProcesses] = useState([])
+  const [lawyers, setLawyers] = useState([])
   const [stats, setStats] = useState({
     totalProcesses: 0,
     judicialProcesses: 0,
@@ -37,14 +72,19 @@ export default function WorkspacePage({ user }) {
     pendingValues: 0
   })
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState(null)
+  const [showArchived, setShowArchived] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
     type: 'judicial',
+    judicial_area: '',
     client_id: '',
     process_id: '',
     due_date: '',
-    priority: 'medium'
+    priority: 'medium',
+    responsible_id: '',
+    responsible_name: ''
   })
   const [loading, setLoading] = useState(true)
 
@@ -54,11 +94,12 @@ export default function WorkspacePage({ user }) {
 
   const fetchData = async () => {
     try {
-      const [tasksRes, clientsRes, processesRes, statsRes] = await Promise.all([
+      const [tasksRes, clientsRes, processesRes, statsRes, lawyersRes] = await Promise.all([
         fetch('/api/tasks'),
         fetch('/api/clients'),
         fetch('/api/processes'),
-        fetch('/api/stats')
+        fetch('/api/stats'),
+        fetch('/api/lawyers')
       ])
 
       if (tasksRes.ok) {
@@ -77,6 +118,10 @@ export default function WorkspacePage({ user }) {
         const data = await statsRes.json()
         setStats(data)
       }
+      if (lawyersRes.ok) {
+        const data = await lawyersRes.json()
+        setLawyers(data)
+      }
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -87,8 +132,11 @@ export default function WorkspacePage({ user }) {
   const handleCreateTask = async (e) => {
     e.preventDefault()
     try {
-      const response = await fetch('/api/tasks', {
-        method: 'POST',
+      const url = editingTask ? `/api/tasks/${editingTask.id}` : '/api/tasks'
+      const method = editingTask ? 'PUT' : 'POST'
+      
+      const response = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newTask,
@@ -97,23 +145,79 @@ export default function WorkspacePage({ user }) {
       })
 
       if (response.ok) {
-        toast.success('Tarefa criada com sucesso!')
+        toast.success(editingTask ? 'Tarefa atualizada!' : 'Tarefa criada com sucesso!')
         setIsDialogOpen(false)
-        setNewTask({
-          title: '',
-          description: '',
-          type: 'judicial',
-          client_id: '',
-          process_id: '',
-          due_date: '',
-          priority: 'medium'
-        })
+        resetForm()
         fetchData()
       } else {
-        throw new Error('Failed to create task')
+        throw new Error('Failed to save task')
       }
     } catch (error) {
-      toast.error('Erro ao criar tarefa')
+      toast.error('Erro ao salvar tarefa')
+    }
+  }
+
+  const resetForm = () => {
+    setEditingTask(null)
+    setNewTask({
+      title: '',
+      description: '',
+      type: 'judicial',
+      judicial_area: '',
+      client_id: '',
+      process_id: '',
+      due_date: '',
+      priority: 'medium',
+      responsible_id: '',
+      responsible_name: ''
+    })
+  }
+
+  const handleEditTask = (task) => {
+    setEditingTask(task)
+    setNewTask({
+      title: task.title || '',
+      description: task.description || '',
+      type: task.type || 'judicial',
+      judicial_area: task.judicial_area || '',
+      client_id: task.client_id || '',
+      process_id: task.process_id || '',
+      due_date: task.due_date || '',
+      priority: task.priority || 'medium',
+      responsible_id: task.responsible_id || '',
+      responsible_name: task.responsible_name || ''
+    })
+    setIsDialogOpen(true)
+  }
+
+  const handleDeleteTask = async (taskId) => {
+    if (!confirm('Tem certeza que deseja excluir esta tarefa?')) return
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE'
+      })
+      if (response.ok) {
+        toast.success('Tarefa excluída!')
+        fetchData()
+      }
+    } catch (error) {
+      toast.error('Erro ao excluir tarefa')
+    }
+  }
+
+  const handleArchiveTask = async (taskId) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: true })
+      })
+      if (response.ok) {
+        toast.success('Tarefa arquivada!')
+        fetchData()
+      }
+    } catch (error) {
+      toast.error('Erro ao arquivar tarefa')
     }
   }
 
@@ -157,6 +261,8 @@ export default function WorkspacePage({ user }) {
       currency: 'BRL'
     }).format(value || 0)
   }
+
+  const filteredTasks = tasks.filter(task => showArchived ? task.archived : !task.archived)
 
   return (
     <div className="space-y-6">
@@ -231,142 +337,210 @@ export default function WorkspacePage({ user }) {
             <CardTitle>Tarefas</CardTitle>
             <CardDescription>Gerencie suas tarefas e atividades</CardDescription>
           </div>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Nova Tarefa
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Criar Nova Tarefa</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleCreateTask} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Título</Label>
-                  <Input
-                    value={newTask.title}
-                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                    placeholder="Título da tarefa"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Descrição</Label>
-                  <Textarea
-                    value={newTask.description}
-                    onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                    placeholder="Descrição da tarefa"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowArchived(!showArchived)}>
+              <Archive className="h-4 w-4 mr-2" />
+              {showArchived ? 'Ver Ativas' : 'Ver Arquivadas'}
+            </Button>
+            <Dialog open={isDialogOpen} onOpenChange={(open) => {
+              setIsDialogOpen(open)
+              if (!open) resetForm()
+            }}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nova Tarefa
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{editingTask ? 'Editar Tarefa' : 'Criar Nova Tarefa'}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleCreateTask} className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Tipo</Label>
-                    <Select
-                      value={newTask.type}
-                      onValueChange={(value) => setNewTask({ ...newTask, type: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="judicial">Judicial</SelectItem>
-                        <SelectItem value="extrajudicial">Extrajudicial</SelectItem>
-                        <SelectItem value="administrative">Administrativa</SelectItem>
-                        <SelectItem value="other">Outras</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label>Título *</Label>
+                    <Input
+                      value={newTask.title}
+                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                      placeholder="Título da tarefa"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label>Prioridade</Label>
-                    <Select
-                      value={newTask.priority}
-                      onValueChange={(value) => setNewTask({ ...newTask, priority: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Baixa</SelectItem>
-                        <SelectItem value="medium">Média</SelectItem>
-                        <SelectItem value="high">Alta</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label>Descrição</Label>
+                    <Textarea
+                      value={newTask.description}
+                      onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                      placeholder="Descrição detalhada da tarefa"
+                      rows={4}
+                    />
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Cliente (opcional)</Label>
-                    <Select
-                      value={newTask.client_id}
-                      onValueChange={(value) => setNewTask({ ...newTask, client_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nenhum</SelectItem>
-                        {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Tipo *</Label>
+                      <Select
+                        value={newTask.type}
+                        onValueChange={(value) => setNewTask({ ...newTask, type: value, judicial_area: '' })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TASK_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {newTask.type === 'judicial' && (
+                      <div className="space-y-2">
+                        <Label>Área Judicial</Label>
+                        <Select
+                          value={newTask.judicial_area}
+                          onValueChange={(value) => setNewTask({ ...newTask, judicial_area: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione a área" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {JUDICIAL_AREAS.map(area => (
+                              <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label>Processo (opcional)</Label>
-                    <Select
-                      value={newTask.process_id}
-                      onValueChange={(value) => setNewTask({ ...newTask, process_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nenhum</SelectItem>
-                        {processes.map((process) => (
-                          <SelectItem key={process.id} value={process.id}>
-                            {process.number || process.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Prioridade</Label>
+                      <Select
+                        value={newTask.priority}
+                        onValueChange={(value) => setNewTask({ ...newTask, priority: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Baixa</SelectItem>
+                          <SelectItem value="medium">Média</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Prazo de Cumprimento</Label>
+                      <Input
+                        type="datetime-local"
+                        value={newTask.due_date}
+                        onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Data de Vencimento</Label>
-                  <Input
-                    type="date"
-                    value={newTask.due_date}
-                    onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit">Criar Tarefa</Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Responsável</Label>
+                      <Select
+                        value={newTask.responsible_id}
+                        onValueChange={(value) => {
+                          const lawyer = lawyers.find(l => l.id === value)
+                          setNewTask({ 
+                            ...newTask, 
+                            responsible_id: value,
+                            responsible_name: lawyer?.name || ''
+                          })
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o responsável" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          {lawyers.map((lawyer) => (
+                            <SelectItem key={lawyer.id} value={lawyer.id}>
+                              {lawyer.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ou digite o nome</Label>
+                      <Input
+                        value={newTask.responsible_name}
+                        onChange={(e) => setNewTask({ ...newTask, responsible_name: e.target.value })}
+                        placeholder="Nome do responsável"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Cliente (opcional)</Label>
+                      <Select
+                        value={newTask.client_id}
+                        onValueChange={(value) => setNewTask({ ...newTask, client_id: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          {clients.map((client) => (
+                            <SelectItem key={client.id} value={client.id}>
+                              {client.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Processo (opcional)</Label>
+                      <Select
+                        value={newTask.process_id}
+                        onValueChange={(value) => setNewTask({ ...newTask, process_id: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          {processes.map((process) => (
+                            <SelectItem key={process.id} value={process.id}>
+                              {process.number || process.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button type="button" variant="outline" onClick={() => {
+                      setIsDialogOpen(false)
+                      resetForm()
+                    }}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit">{editingTask ? 'Salvar Alterações' : 'Criar Tarefa'}</Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-8 text-gray-500">Carregando...</div>
-          ) : tasks.length === 0 ? (
+          ) : filteredTasks.length === 0 ? (
             <div className="text-center py-8">
               <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
                 <CheckCircle2 className="h-8 w-8 text-gray-400" />
               </div>
-              <p className="text-gray-500">Nenhuma tarefa cadastrada</p>
+              <p className="text-gray-500">{showArchived ? 'Nenhuma tarefa arquivada' : 'Nenhuma tarefa cadastrada'}</p>
               <p className="text-sm text-gray-400">Clique em "Nova Tarefa" para começar</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {tasks.map((task) => (
+              {filteredTasks.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-lg border ${task.completed ? 'bg-gray-50 opacity-60' : 'bg-white'}`}
@@ -387,6 +561,11 @@ export default function WorkspacePage({ user }) {
                            task.type === 'extrajudicial' ? 'Extrajudicial' :
                            task.type === 'administrative' ? 'Administrativa' : 'Outras'}
                         </Badge>
+                        {task.judicial_area && (
+                          <Badge variant="outline">
+                            {JUDICIAL_AREAS.find(a => a.value === task.judicial_area)?.label || task.judicial_area}
+                          </Badge>
+                        )}
                         <Badge className={getPriorityColor(task.priority)}>
                           {task.priority === 'high' ? 'Alta' :
                            task.priority === 'medium' ? 'Média' : 'Baixa'}
@@ -399,7 +578,7 @@ export default function WorkspacePage({ user }) {
                         {task.due_date && (
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {new Date(task.due_date).toLocaleDateString('pt-BR')}
+                            {new Date(task.due_date).toLocaleString('pt-BR')}
                           </span>
                         )}
                         {task.client_name && (
@@ -408,8 +587,34 @@ export default function WorkspacePage({ user }) {
                             {task.client_name}
                           </span>
                         )}
+                        {task.responsible_name && (
+                          <span className="flex items-center gap-1 text-blue-600">
+                            Responsável: {task.responsible_name}
+                          </span>
+                        )}
                       </div>
                     </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEditTask(task)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleArchiveTask(task.id)}>
+                          <Archive className="h-4 w-4 mr-2" />
+                          Arquivar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDeleteTask(task.id)} className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               ))}
