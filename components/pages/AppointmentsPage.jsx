@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
-import { Plus, Search, MessageSquare, User, Calendar, Edit, Trash2, Clock } from 'lucide-react'
+import { Plus, Search, MessageSquare, User, Calendar, Edit, Trash2, Clock, CalendarCheck, Link2, Unlink, ExternalLink, RefreshCw, CheckCircle2 } from 'lucide-react'
 
 export default function AppointmentsPage({ user }) {
   const [appointments, setAppointments] = useState([])
@@ -20,18 +22,91 @@ export default function AppointmentsPage({ user }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState(null)
   const [loading, setLoading] = useState(true)
+  
+  // Google Calendar State
+  const [googleTokens, setGoogleTokens] = useState(null)
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false)
+  const [syncWithGoogle, setSyncWithGoogle] = useState(true)
+  const [isConnecting, setIsConnecting] = useState(false)
+
   const [formData, setFormData] = useState({
     client_id: '',
     process_id: '',
     subject: '',
     notes: '',
     date: '',
+    end_date: '',
     status: 'scheduled'
   })
 
   useEffect(() => {
     fetchData()
+    checkGoogleConnection()
+    
+    // Verificar se há tokens na URL (callback do Google)
+    const urlParams = new URLSearchParams(window.location.search)
+    const tokensParam = urlParams.get('google_tokens')
+    const googleSuccess = urlParams.get('google_success')
+    const googleError = urlParams.get('google_error')
+
+    if (tokensParam && googleSuccess) {
+      try {
+        const tokens = JSON.parse(decodeURIComponent(tokensParam))
+        localStorage.setItem('google_calendar_tokens', JSON.stringify(tokens))
+        setGoogleTokens(tokens)
+        setIsGoogleConnected(true)
+        toast.success('Google Calendar conectado com sucesso!')
+        // Limpar URL
+        window.history.replaceState({}, document.title, window.location.pathname)
+      } catch (e) {
+        console.error('Error parsing tokens:', e)
+      }
+    }
+
+    if (googleError) {
+      toast.error('Erro ao conectar com Google Calendar')
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
   }, [])
+
+  const checkGoogleConnection = () => {
+    const savedTokens = localStorage.getItem('google_calendar_tokens')
+    if (savedTokens) {
+      try {
+        const tokens = JSON.parse(savedTokens)
+        setGoogleTokens(tokens)
+        setIsGoogleConnected(true)
+      } catch (e) {
+        console.error('Error parsing saved tokens:', e)
+      }
+    }
+  }
+
+  const connectGoogleCalendar = async () => {
+    setIsConnecting(true)
+    try {
+      const response = await fetch('/api/google/auth')
+      const data = await response.json()
+      
+      if (data.authUrl) {
+        window.location.href = data.authUrl
+      } else {
+        toast.error('Erro ao obter URL de autenticação')
+      }
+    } catch (error) {
+      console.error('Error connecting to Google:', error)
+      toast.error('Erro ao conectar com Google Calendar')
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const disconnectGoogleCalendar = () => {
+    localStorage.removeItem('google_calendar_tokens')
+    setGoogleTokens(null)
+    setIsGoogleConnected(false)
+    toast.success('Google Calendar desconectado')
+  }
 
   const fetchData = async () => {
     try {
@@ -51,23 +126,87 @@ export default function AppointmentsPage({ user }) {
     }
   }
 
+  const createGoogleEvent = async (appointmentData) => {
+    if (!isGoogleConnected || !googleTokens || !syncWithGoogle) return null
+
+    try {
+      const client = clients.find(c => c.id === appointmentData.client_id)
+      const clientName = client?.name || client?.razao_social || 'Cliente'
+      
+      const startDate = new Date(appointmentData.date)
+      const endDate = appointmentData.end_date 
+        ? new Date(appointmentData.end_date)
+        : new Date(startDate.getTime() + 60 * 60 * 1000) // 1 hora por padrão
+
+      const eventData = {
+        title: `📋 ${appointmentData.subject} - ${clientName}`,
+        description: `Cliente: ${clientName}\n\nDemanda:\n${appointmentData.notes || 'Sem observações'}\n\n---\nGuedes & Silva Advocacia`,
+        startDateTime: startDate.toISOString(),
+        endDateTime: endDate.toISOString()
+      }
+
+      const response = await fetch('/api/google/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokens: googleTokens, eventData })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        return data.event
+      }
+    } catch (error) {
+      console.error('Error creating Google event:', error)
+    }
+    return null
+  }
+
+  const deleteGoogleEvent = async (eventId) => {
+    if (!isGoogleConnected || !googleTokens || !eventId) return
+
+    try {
+      const encodedTokens = encodeURIComponent(JSON.stringify(googleTokens))
+      await fetch(`/api/google/calendar?tokens=${encodedTokens}&eventId=${eventId}`, {
+        method: 'DELETE'
+      })
+    } catch (error) {
+      console.error('Error deleting Google event:', error)
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
       const url = selectedAppointment ? `/api/appointments/${selectedAppointment.id}` : '/api/appointments'
       const method = selectedAppointment ? 'PUT' : 'POST'
 
+      // Criar evento no Google Calendar primeiro (se conectado)
+      let googleEventId = selectedAppointment?.google_event_id || null
+      
+      if (!selectedAppointment && syncWithGoogle && isGoogleConnected) {
+        const googleEvent = await createGoogleEvent(formData)
+        if (googleEvent) {
+          googleEventId = googleEvent.id
+        }
+      }
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
-          lawyer_id: user.id
+          lawyer_id: user.id,
+          google_event_id: googleEventId
         })
       })
 
       if (response.ok) {
-        toast.success(selectedAppointment ? 'Atendimento atualizado!' : 'Atendimento registrado!')
+        const message = selectedAppointment ? 'Atendimento atualizado!' : 'Atendimento registrado!'
+        if (googleEventId && !selectedAppointment) {
+          toast.success(`${message} Sincronizado com Google Calendar.`)
+        } else {
+          toast.success(message)
+        }
         setIsDialogOpen(false)
         resetForm()
         fetchData()
@@ -77,9 +216,14 @@ export default function AppointmentsPage({ user }) {
     }
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, googleEventId) => {
     if (!confirm('Tem certeza que deseja excluir este atendimento?')) return
     try {
+      // Deletar do Google Calendar se existir
+      if (googleEventId && isGoogleConnected) {
+        await deleteGoogleEvent(googleEventId)
+      }
+
       const response = await fetch(`/api/appointments/${id}`, { method: 'DELETE' })
       if (response.ok) {
         toast.success('Atendimento excluído!')
@@ -98,6 +242,7 @@ export default function AppointmentsPage({ user }) {
       subject: '',
       notes: '',
       date: '',
+      end_date: '',
       status: 'scheduled'
     })
   }
@@ -127,6 +272,53 @@ export default function AppointmentsPage({ user }) {
 
   return (
     <div className="space-y-6">
+      {/* Google Calendar Connection Card */}
+      <Card className={isGoogleConnected ? 'border-green-200 bg-green-50/50' : 'border-orange-200 bg-orange-50/50'}>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-full ${isGoogleConnected ? 'bg-green-100' : 'bg-orange-100'}`}>
+                <CalendarCheck className={`h-6 w-6 ${isGoogleConnected ? 'text-green-600' : 'text-orange-600'}`} />
+              </div>
+              <div>
+                <h3 className="font-semibold">Google Calendar</h3>
+                <p className="text-sm text-gray-600">
+                  {isGoogleConnected 
+                    ? 'Conectado - Os atendimentos serão sincronizados automaticamente'
+                    : 'Conecte para sincronizar atendimentos com sua agenda'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {isGoogleConnected && (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="sync-switch" className="text-sm">Sincronizar novos</Label>
+                  <Switch
+                    id="sync-switch"
+                    checked={syncWithGoogle}
+                    onCheckedChange={setSyncWithGoogle}
+                  />
+                </div>
+              )}
+              <Button
+                variant={isGoogleConnected ? 'outline' : 'default'}
+                onClick={isGoogleConnected ? disconnectGoogleCalendar : connectGoogleCalendar}
+                disabled={isConnecting}
+              >
+                {isConnecting ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : isGoogleConnected ? (
+                  <Unlink className="h-4 w-4 mr-2" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-2" />
+                )}
+                {isGoogleConnected ? 'Desconectar' : 'Conectar Google Calendar'}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div className="relative flex-1 max-w-md">
@@ -162,7 +354,7 @@ export default function AppointmentsPage({ user }) {
                   <SelectContent>
                     {clients.map((client) => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        {client.name || client.razao_social}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -189,29 +381,38 @@ export default function AppointmentsPage({ user }) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Data/Hora</Label>
+                  <Label>Data/Hora Início *</Label>
                   <Input
                     type="datetime-local"
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Status</Label>
-                  <Select
-                    value={formData.status}
-                    onValueChange={(value) => setFormData({ ...formData, status: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="scheduled">Agendado</SelectItem>
-                      <SelectItem value="completed">Concluído</SelectItem>
-                      <SelectItem value="cancelled">Cancelado</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Data/Hora Fim</Label>
+                  <Input
+                    type="datetime-local"
+                    value={formData.end_date}
+                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                  />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value) => setFormData({ ...formData, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="scheduled">Agendado</SelectItem>
+                    <SelectItem value="completed">Concluído</SelectItem>
+                    <SelectItem value="cancelled">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Assunto *</Label>
@@ -231,6 +432,17 @@ export default function AppointmentsPage({ user }) {
                   rows={4}
                 />
               </div>
+
+              {/* Google Calendar Sync Info */}
+              {!selectedAppointment && isGoogleConnected && syncWithGoogle && (
+                <Alert className="bg-blue-50 border-blue-200">
+                  <CalendarCheck className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-700">
+                    Este atendimento será automaticamente adicionado ao Google Calendar.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
                 <Button type="submit">{selectedAppointment ? 'Atualizar' : 'Registrar'}</Button>
@@ -264,6 +476,12 @@ export default function AppointmentsPage({ user }) {
                         <Badge className={getStatusColor(apt.status)}>
                           {getStatusLabel(apt.status)}
                         </Badge>
+                        {apt.google_event_id && (
+                          <Badge variant="outline" className="text-green-600 border-green-300">
+                            <CalendarCheck className="h-3 w-3 mr-1" />
+                            Google
+                          </Badge>
+                        )}
                         {apt.date && (
                           <span className="text-sm text-gray-500 flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
@@ -293,13 +511,14 @@ export default function AppointmentsPage({ user }) {
                           subject: apt.subject || '',
                           notes: apt.notes || '',
                           date: apt.date || '',
+                          end_date: apt.end_date || '',
                           status: apt.status || 'scheduled'
                         })
                         setIsDialogOpen(true)
                       }}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(apt.id)}>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(apt.id, apt.google_event_id)}>
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
                     </div>
