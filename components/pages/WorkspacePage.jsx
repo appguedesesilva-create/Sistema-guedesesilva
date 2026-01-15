@@ -23,7 +23,14 @@ import {
   Edit,
   Trash2,
   Archive,
-  MoreHorizontal
+  MoreHorizontal,
+  TrendingUp,
+  ArrowUpRight,
+  ArrowDownRight,
+  Scale,
+  Briefcase,
+  FileText,
+  Bell
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -31,6 +38,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend, Area, AreaChart } from 'recharts'
 
 const TASK_TYPES = [
   { value: 'judicial', label: 'Judicial' },
@@ -264,68 +272,215 @@ export default function WorkspacePage({ user }) {
 
   const filteredTasks = tasks.filter(task => showArchived ? task.archived : !task.archived)
 
+  // Dados para gráficos
+  const processChartData = [
+    { name: 'Judiciais', value: stats.judicialProcesses, color: '#3b82f6' },
+    { name: 'Administrativos', value: stats.administrativeProcesses, color: '#f97316' },
+    { name: 'Extrajudiciais', value: stats.extraJudicialServices, color: '#8b5cf6' }
+  ]
+
+  const financialChartData = [
+    { name: 'Jan', entradas: 4500, saidas: 1200 },
+    { name: 'Fev', entradas: 3800, saidas: 1100 },
+    { name: 'Mar', entradas: 5200, saidas: 1500 },
+    { name: 'Abr', entradas: 4100, saidas: 900 },
+    { name: 'Mai', entradas: 6300, saidas: 1800 },
+    { name: 'Jun', entradas: 5800, saidas: 1400 }
+  ]
+
+  // Tarefas vencendo/vencidas
+  const today = new Date()
+  const overdueTasks = tasks.filter(t => !t.completed && t.due_date && new Date(t.due_date) < today)
+  const upcomingTasks = tasks.filter(t => !t.completed && t.due_date && new Date(t.due_date) >= today && new Date(t.due_date) <= new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000))
+
   return (
     <div className="space-y-6">
-      {/* Stats Cards */}
+      {/* Stats Cards - Design Moderno */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        {/* Total de Processos */}
+        <Card className="overflow-hidden border-0 shadow-lg">
+          <div className="h-1 bg-gradient-to-r from-blue-500 to-blue-600"></div>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Total de Processos</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalProcesses}</p>
-                <div className="flex gap-2 mt-1">
-                  <span className="text-xs text-blue-600">Judiciais: {stats.judicialProcesses}</span>
-                  <span className="text-xs text-orange-600">Adm: {stats.administrativeProcesses}</span>
+                <p className="text-sm font-medium text-gray-500">Total de Processos</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.totalProcesses}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="flex items-center text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                    <Scale className="h-3 w-3 mr-1" />
+                    {stats.judicialProcesses} Judiciais
+                  </span>
                 </div>
               </div>
-              <div className="p-3 bg-blue-100 rounded-full">
-                <FolderOpen className="h-6 w-6 text-blue-600" />
+              <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg">
+                <FolderOpen className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* Clientes */}
+        <Card className="overflow-hidden border-0 shadow-lg">
+          <div className="h-1 bg-gradient-to-r from-emerald-500 to-emerald-600"></div>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Clientes Cadastrados</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalClients}</p>
+                <p className="text-sm font-medium text-gray-500">Clientes Cadastrados</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.totalClients}</p>
+                <div className="flex items-center mt-2 text-emerald-600 text-sm">
+                  <TrendingUp className="h-4 w-4 mr-1" />
+                  <span>Ativos</span>
+                </div>
               </div>
-              <div className="p-3 bg-green-100 rounded-full">
-                <Users className="h-6 w-6 text-green-600" />
+              <div className="p-4 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl shadow-lg">
+                <Users className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* Valores em Contratos */}
+        <Card className="overflow-hidden border-0 shadow-lg">
+          <div className="h-1 bg-gradient-to-r from-purple-500 to-purple-600"></div>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Valores em Contratos</p>
-                <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.contractValues)}</p>
+                <p className="text-sm font-medium text-gray-500">Valores em Contratos</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{formatCurrency(stats.contractValues)}</p>
+                <div className="flex items-center mt-2 text-green-600 text-sm">
+                  <ArrowUpRight className="h-4 w-4 mr-1" />
+                  <span>Recebido: {formatCurrency(stats.receivedValues)}</span>
+                </div>
               </div>
-              <div className="p-3 bg-purple-100 rounded-full">
-                <DollarSign className="h-6 w-6 text-purple-600" />
+              <div className="p-4 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl shadow-lg">
+                <DollarSign className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* A Receber */}
+        <Card className="overflow-hidden border-0 shadow-lg">
+          <div className="h-1 bg-gradient-to-r from-amber-500 to-amber-600"></div>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">A Receber</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.pendingValues)}</p>
-                <p className="text-xs text-gray-500">Recebido: {formatCurrency(stats.receivedValues)}</p>
+                <p className="text-sm font-medium text-gray-500">A Receber</p>
+                <p className="text-3xl font-bold text-amber-600 mt-1">{formatCurrency(stats.pendingValues)}</p>
+                <div className="flex items-center mt-2 text-gray-500 text-sm">
+                  <Clock className="h-4 w-4 mr-1" />
+                  <span>Pendentes</span>
+                </div>
               </div>
-              <div className="p-3 bg-yellow-100 rounded-full">
-                <Clock className="h-6 w-6 text-yellow-600" />
+              <div className="p-4 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl shadow-lg">
+                <Clock className="h-7 w-7 text-white" />
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Seção de Gráficos e Alertas */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Gráfico de Processos */}
+        <Card className="border-0 shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">Distribuição de Processos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={processChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
+                    {processChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex justify-center gap-4 mt-2">
+              {processChartData.map((item, index) => (
+                <div key={index} className="flex items-center gap-1 text-xs">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
+                  <span className="text-gray-600">{item.name}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico Financeiro */}
+        <Card className="border-0 shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">Fluxo Financeiro</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={financialChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="entradas" stackId="1" stroke="#10b981" fill="#10b98133" />
+                  <Area type="monotone" dataKey="saidas" stackId="2" stroke="#ef4444" fill="#ef444433" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Painel de Alertas */}
+        <Card className="border-0 shadow-lg">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Bell className="h-4 w-4 text-amber-500" />
+              Alertas e Prazos
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {overdueTasks.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="font-medium text-sm">{overdueTasks.length} tarefa(s) vencida(s)</span>
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {overdueTasks.slice(0, 3).map((task, i) => (
+                    <li key={i} className="text-xs text-red-600 truncate">• {task.title}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {upcomingTasks.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-center gap-2 text-amber-700">
+                  <Clock className="h-4 w-4" />
+                  <span className="font-medium text-sm">{upcomingTasks.length} tarefa(s) esta semana</span>
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {upcomingTasks.slice(0, 3).map((task, i) => (
+                    <li key={i} className="text-xs text-amber-600 truncate">• {task.title}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {overdueTasks.length === 0 && upcomingTasks.length === 0 && (
+              <div className="p-4 text-center text-gray-500">
+                <CheckCircle2 className="h-8 w-8 mx-auto text-green-500 mb-2" />
+                <p className="text-sm">Nenhum prazo urgente</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

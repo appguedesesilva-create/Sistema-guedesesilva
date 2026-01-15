@@ -479,6 +479,30 @@ async function handleRoute(request, { params }) {
       return handleCORS(NextResponse.json({ success: true }))
     }
 
+    // ==================== GENERATED DOCS ====================
+    if (route === '/generated-docs' && method === 'GET') {
+      const docs = await db.collection('generated_docs').find({}).sort({ created_at: -1 }).toArray()
+      const cleaned = docs.map(({ _id, ...rest }) => rest)
+      return handleCORS(NextResponse.json(cleaned))
+    }
+
+    if (route === '/generated-docs' && method === 'POST') {
+      const body = await request.json()
+      const doc = {
+        id: uuidv4(),
+        ...body,
+        created_at: new Date()
+      }
+      await db.collection('generated_docs').insertOne(doc)
+      return handleCORS(NextResponse.json(doc))
+    }
+
+    if (route.match(/^\/generated-docs\/[\w-]+$/) && method === 'DELETE') {
+      const id = path[1]
+      await db.collection('generated_docs').deleteOne({ id })
+      return handleCORS(NextResponse.json({ success: true }))
+    }
+
     // ==================== STATS ====================
     if (route === '/stats' && method === 'GET') {
       const [processes, clients, contracts, payments] = await Promise.all([
@@ -500,6 +524,77 @@ async function handleRoute(request, { params }) {
       }
 
       return handleCORS(NextResponse.json(stats))
+    }
+
+    // ==================== GENERATE DOCX ====================
+    if (route === '/documents/generate-docx' && method === 'POST') {
+      try {
+        const Docxtemplater = require('docxtemplater')
+        const PizZip = require('pizzip')
+        
+        const body = await request.json()
+        const { file_data, client, lawyer_name, lawyer_oab } = body
+        
+        if (!file_data) {
+          return handleCORS(NextResponse.json({ error: 'No file data' }, { status: 400 }))
+        }
+
+        // Extrair base64 data
+        const base64Data = file_data.split(',')[1]
+        const buffer = Buffer.from(base64Data, 'base64')
+        
+        // Carregar documento com PizZip
+        const zip = new PizZip(buffer)
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true
+        })
+        
+        // Dados para substituição
+        const today = new Date()
+        const data = {
+          nome: client?.name || '',
+          cpf: client?.cpf || '',
+          rg: client?.rg || '',
+          endereco: [client?.address, client?.address_number, client?.neighborhood, client?.city, client?.state].filter(Boolean).join(', '),
+          telefone: client?.phone_mobile || client?.phone || '',
+          email: client?.email || '',
+          data_nascimento: client?.birth_date ? new Date(client.birth_date).toLocaleDateString('pt-BR') : '',
+          profissao: client?.profession || '',
+          estado_civil: client?.marital_status || '',
+          nome_mae: client?.mother_name || '',
+          nacionalidade: client?.nationality || '',
+          cep: client?.cep || '',
+          cidade: client?.city || '',
+          estado: client?.state || '',
+          bairro: client?.neighborhood || '',
+          data_hoje: today.toLocaleDateString('pt-BR'),
+          data_extenso: today.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
+          advogado: lawyer_name || '',
+          oab: lawyer_oab || ''
+        }
+        
+        // Renderizar documento com substituições
+        doc.render(data)
+        
+        // Gerar buffer do documento final
+        const outputBuffer = doc.getZip().generate({
+          type: 'nodebuffer',
+          compression: 'DEFLATE'
+        })
+        
+        return new NextResponse(outputBuffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition': 'attachment; filename="documento.docx"',
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      } catch (error) {
+        console.error('Error generating docx:', error)
+        return handleCORS(NextResponse.json({ error: error.message }, { status: 500 }))
+      }
     }
 
     // ==================== PUBLICATIONS (Tribunais) ====================

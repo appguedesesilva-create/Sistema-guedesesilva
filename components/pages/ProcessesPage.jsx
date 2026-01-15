@@ -333,6 +333,48 @@ export default function ProcessesPage({ user }) {
     s.service_type?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  // Contagem de processos por tipo e ano
+  const getProcessStats = () => {
+    const currentYear = new Date().getFullYear()
+    const stats = {}
+    
+    // Inicializar estatísticas para os últimos 5 anos
+    for (let year = currentYear; year >= currentYear - 4; year--) {
+      stats[year] = {}
+      JUDICIAL_TYPES.forEach(type => {
+        stats[year][type.value] = 0
+      })
+    }
+    
+    // Anos anteriores agrupados
+    stats['anteriores'] = {}
+    JUDICIAL_TYPES.forEach(type => {
+      stats['anteriores'][type.value] = 0
+    })
+    
+    // Contar processos judiciais
+    processes.filter(p => p.type === 'judicial').forEach(p => {
+      const processYear = p.created_at ? new Date(p.created_at).getFullYear() : currentYear
+      const processType = p.process_type || 'outros'
+      
+      if (processYear >= currentYear - 4) {
+        if (stats[processYear] && stats[processYear][processType] !== undefined) {
+          stats[processYear][processType]++
+        }
+      } else {
+        if (stats['anteriores'][processType] !== undefined) {
+          stats['anteriores'][processType]++
+        }
+      }
+    })
+    
+    return stats
+  }
+
+  const processStats = getProcessStats()
+  const currentYear = new Date().getFullYear()
+  const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4, 'anteriores']
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -361,6 +403,64 @@ export default function ProcessesPage({ user }) {
           </Button>
         </div>
       </div>
+
+      {/* Quadro de Contagem de Processos por Tipo e Ano */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Scale className="h-5 w-5 text-blue-600" />
+            Processos Judiciais por Tipo e Ano
+          </CardTitle>
+          <CardDescription>Distribuição de processos cadastrados</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-2 font-medium text-gray-700">Tipo de Processo</th>
+                  {years.map(year => (
+                    <th key={year} className="text-center p-2 font-medium text-gray-700 min-w-[70px]">
+                      {year === 'anteriores' ? 'Anteriores' : year}
+                    </th>
+                  ))}
+                  <th className="text-center p-2 font-medium text-gray-700 bg-blue-50">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {JUDICIAL_TYPES.map((type, index) => {
+                  const total = years.reduce((sum, year) => sum + (processStats[year]?.[type.value] || 0), 0)
+                  return (
+                    <tr key={type.value} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="p-2 font-medium text-gray-800">{type.label}</td>
+                      {years.map(year => (
+                        <td key={year} className="text-center p-2">
+                          <span className={processStats[year]?.[type.value] > 0 ? 'font-semibold text-blue-600' : 'text-gray-400'}>
+                            {processStats[year]?.[type.value] || 0}
+                          </span>
+                        </td>
+                      ))}
+                      <td className="text-center p-2 bg-blue-50 font-bold text-blue-700">{total}</td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 bg-gray-100 font-bold">
+                  <td className="p-2 text-gray-800">TOTAL</td>
+                  {years.map(year => {
+                    const yearTotal = JUDICIAL_TYPES.reduce((sum, type) => sum + (processStats[year]?.[type.value] || 0), 0)
+                    return (
+                      <td key={year} className="text-center p-2 text-blue-700">{yearTotal}</td>
+                    )
+                  })}
+                  <td className="text-center p-2 bg-blue-100 text-blue-800">
+                    {filteredJudicial.length}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
