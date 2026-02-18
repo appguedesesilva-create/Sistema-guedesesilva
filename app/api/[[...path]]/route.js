@@ -1,19 +1,12 @@
-import { MongoClient } from 'mongodb'
+import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 
-// MongoDB connection
-let client
-let db
+// Supabase connection
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-async function connectToMongo() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGO_URL)
-    await client.connect()
-    db = client.db(process.env.DB_NAME || 'guedes_silva_law')
-  }
-  return db
-}
+const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 // Helper function to handle CORS
 function handleCORS(response) {
@@ -36,621 +29,480 @@ async function handleRoute(request, { params }) {
   const method = request.method
 
   try {
-    const db = await connectToMongo()
-
     // Root endpoint
     if ((route === '/' || route === '/root') && method === 'GET') {
-      return handleCORS(NextResponse.json({ message: "Guedes & Silva API" }))
+      return handleCORS(NextResponse.json({ message: "Guedes & Silva API - Supabase" }))
     }
 
     // ==================== LAWYERS ====================
     if (route === '/lawyers' && method === 'GET') {
-      const lawyers = await db.collection('lawyers').find({}).toArray()
-      const cleaned = lawyers.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('lawyers').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/lawyers' && method === 'POST') {
       const body = await request.json()
-      const lawyer = {
-        id: body.id || uuidv4(),
-        email: body.email,
-        name: body.name,
-        oab: body.oab,
-        phone: body.phone,
-        created_at: new Date()
+      const newLawyer = {
+        id: uuidv4(),
+        ...body,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('lawyers').insertOne(lawyer)
-      return handleCORS(NextResponse.json(lawyer))
+      const { data, error } = await supabase.from('lawyers').insert([newLawyer]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
     // ==================== CLIENTS ====================
     if (route === '/clients' && method === 'GET') {
-      const clients = await db.collection('clients').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = clients.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('clients').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/clients' && method === 'POST') {
       const body = await request.json()
-      const client = {
+      const newClient = {
         id: uuidv4(),
         ...body,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('clients').insertOne(client)
-      return handleCORS(NextResponse.json(client))
+      const { data, error } = await supabase.from('clients').insert([newClient]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/clients\/[\w-]+$/) && method === 'GET') {
+    if (route.startsWith('/clients/') && method === 'GET') {
       const id = path[1]
-      const client = await db.collection('clients').findOne({ id })
-      if (!client) {
-        return handleCORS(NextResponse.json({ error: 'Client not found' }, { status: 404 }))
-      }
-      const { _id, ...cleaned } = client
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('clients').select('*').eq('id', id).single()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data))
     }
 
-    if (route.match(/^\/clients\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/clients/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('clients').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('clients').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('clients')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/clients\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/clients/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('clients').deleteOne({ id })
+      const { error } = await supabase.from('clients').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
     // ==================== PROCESSES ====================
     if (route === '/processes' && method === 'GET') {
-      const processes = await db.collection('processes').find({}).sort({ created_at: -1 }).toArray()
-      // Join with clients
-      const clients = await db.collection('clients').find({}).toArray()
-      const clientMap = clients.reduce((acc, c) => { acc[c.id] = c.name; return acc }, {})
-      const cleaned = processes.map(({ _id, ...rest }) => ({
-        ...rest,
-        client_name: clientMap[rest.client_id] || null
-      }))
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('processes').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/processes' && method === 'POST') {
       const body = await request.json()
-      const process = {
+      const newProcess = {
         id: uuidv4(),
         ...body,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('processes').insertOne(process)
-      return handleCORS(NextResponse.json(process))
+      const { data, error } = await supabase.from('processes').insert([newProcess]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/processes\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/processes/') && method === 'GET') {
+      const id = path[1]
+      const { data, error } = await supabase.from('processes').select('*').eq('id', id).single()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data))
+    }
+
+    if (route.startsWith('/processes/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('processes').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('processes').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('processes')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/processes\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/processes/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('processes').deleteOne({ id })
-      return handleCORS(NextResponse.json({ success: true }))
-    }
-
-    // ==================== SERVICES ====================
-    if (route === '/services' && method === 'GET') {
-      const services = await db.collection('services').find({}).sort({ created_at: -1 }).toArray()
-      const clients = await db.collection('clients').find({}).toArray()
-      const clientMap = clients.reduce((acc, c) => { acc[c.id] = c.name; return acc }, {})
-      const cleaned = services.map(({ _id, ...rest }) => ({
-        ...rest,
-        client_name: clientMap[rest.client_id] || null
-      }))
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route === '/services' && method === 'POST') {
-      const body = await request.json()
-      const service = {
-        id: uuidv4(),
-        ...body,
-        created_at: new Date(),
-        updated_at: new Date()
-      }
-      await db.collection('services').insertOne(service)
-      return handleCORS(NextResponse.json(service))
-    }
-
-    if (route.match(/^\/services\/[\w-]+$/) && method === 'PUT') {
-      const id = path[1]
-      const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('services').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('services').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route.match(/^\/services\/[\w-]+$/) && method === 'DELETE') {
-      const id = path[1]
-      await db.collection('services').deleteOne({ id })
+      const { error } = await supabase.from('processes').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
     // ==================== TASKS ====================
     if (route === '/tasks' && method === 'GET') {
-      const tasks = await db.collection('tasks').find({}).sort({ created_at: -1 }).toArray()
-      const clients = await db.collection('clients').find({}).toArray()
-      const clientMap = clients.reduce((acc, c) => { acc[c.id] = c.name; return acc }, {})
-      const cleaned = tasks.map(({ _id, ...rest }) => ({
-        ...rest,
-        client_name: clientMap[rest.client_id] || null
-      }))
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/tasks' && method === 'POST') {
       const body = await request.json()
-      const task = {
+      const newTask = {
         id: uuidv4(),
         ...body,
-        completed: false,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('tasks').insertOne(task)
-      return handleCORS(NextResponse.json(task))
+      const { data, error } = await supabase.from('tasks').insert([newTask]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/tasks\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/tasks/') && method === 'GET') {
+      const id = path[1]
+      const { data, error } = await supabase.from('tasks').select('*').eq('id', id).single()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data))
+    }
+
+    if (route.startsWith('/tasks/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('tasks').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('tasks').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/tasks\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/tasks/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('tasks').deleteOne({ id })
+      const { error } = await supabase.from('tasks').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
     // ==================== CONTACTS ====================
     if (route === '/contacts' && method === 'GET') {
-      const contacts = await db.collection('contacts').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = contacts.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('contacts').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/contacts' && method === 'POST') {
       const body = await request.json()
-      const contact = {
+      const newContact = {
         id: uuidv4(),
         ...body,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('contacts').insertOne(contact)
-      return handleCORS(NextResponse.json(contact))
+      const { data, error } = await supabase.from('contacts').insert([newContact]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/contacts\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/contacts/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('contacts').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('contacts').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('contacts')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/contacts\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/contacts/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('contacts').deleteOne({ id })
-      return handleCORS(NextResponse.json({ success: true }))
-    }
-
-    // ==================== CONTRACTS ====================
-    if (route === '/contracts' && method === 'GET') {
-      const contracts = await db.collection('contracts').find({}).sort({ created_at: -1 }).toArray()
-      const clients = await db.collection('clients').find({}).toArray()
-      const clientMap = clients.reduce((acc, c) => { acc[c.id] = c.name; return acc }, {})
-      const cleaned = contracts.map(({ _id, ...rest }) => ({
-        ...rest,
-        client_name: clientMap[rest.client_id] || null
-      }))
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route === '/contracts' && method === 'POST') {
-      const body = await request.json()
-      const contract = {
-        id: uuidv4(),
-        ...body,
-        created_at: new Date(),
-        updated_at: new Date()
-      }
-      await db.collection('contracts').insertOne(contract)
-      return handleCORS(NextResponse.json(contract))
-    }
-
-    if (route.match(/^\/contracts\/[\w-]+$/) && method === 'PUT') {
-      const id = path[1]
-      const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('contracts').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('contracts').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route.match(/^\/contracts\/[\w-]+$/) && method === 'DELETE') {
-      const id = path[1]
-      await db.collection('contracts').deleteOne({ id })
-      return handleCORS(NextResponse.json({ success: true }))
-    }
-
-    // ==================== PAYMENTS ====================
-    if (route === '/payments' && method === 'GET') {
-      const payments = await db.collection('payments').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = payments.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route === '/payments' && method === 'POST') {
-      const body = await request.json()
-      const payment = {
-        id: uuidv4(),
-        ...body,
-        created_at: new Date()
-      }
-      await db.collection('payments').insertOne(payment)
-      return handleCORS(NextResponse.json(payment))
-    }
-
-    if (route.match(/^\/payments\/[\w-]+$/) && method === 'PUT') {
-      const id = path[1]
-      const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('payments').updateOne(
-        { id },
-        { $set: { ...updateData } }
-      )
-      const updated = await db.collection('payments').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route.match(/^\/payments\/[\w-]+$/) && method === 'DELETE') {
-      const id = path[1]
-      await db.collection('payments').deleteOne({ id })
-      return handleCORS(NextResponse.json({ success: true }))
-    }
-
-    // ==================== EXPENSES ====================
-    if (route === '/expenses' && method === 'GET') {
-      const expenses = await db.collection('expenses').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = expenses.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route === '/expenses' && method === 'POST') {
-      const body = await request.json()
-      const expense = {
-        id: uuidv4(),
-        ...body,
-        created_at: new Date()
-      }
-      await db.collection('expenses').insertOne(expense)
-      return handleCORS(NextResponse.json(expense))
-    }
-
-    if (route.match(/^\/expenses\/[\w-]+$/) && method === 'PUT') {
-      const id = path[1]
-      const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('expenses').updateOne(
-        { id },
-        { $set: { ...updateData } }
-      )
-      const updated = await db.collection('expenses').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
-    }
-
-    if (route.match(/^\/expenses\/[\w-]+$/) && method === 'DELETE') {
-      const id = path[1]
-      await db.collection('expenses').deleteOne({ id })
+      const { error } = await supabase.from('contacts').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
     // ==================== DOCUMENTS ====================
     if (route === '/documents' && method === 'GET') {
-      const documents = await db.collection('documents').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = documents.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/documents' && method === 'POST') {
       const body = await request.json()
-      const document = {
+      const newDocument = {
         id: uuidv4(),
         ...body,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('documents').insertOne(document)
-      return handleCORS(NextResponse.json(document))
+      const { data, error } = await supabase.from('documents').insert([newDocument]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/documents\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/documents/') && method === 'GET') {
+      const id = path[1]
+      const { data, error } = await supabase.from('documents').select('*').eq('id', id).single()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data))
+    }
+
+    if (route.startsWith('/documents/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('documents').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('documents').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('documents')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/documents\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/documents/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('documents').deleteOne({ id })
+      const { error } = await supabase.from('documents').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
     // ==================== APPOINTMENTS ====================
     if (route === '/appointments' && method === 'GET') {
-      const appointments = await db.collection('appointments').find({}).sort({ created_at: -1 }).toArray()
-      const clients = await db.collection('clients').find({}).toArray()
-      const clientMap = clients.reduce((acc, c) => { acc[c.id] = c.name; return acc }, {})
-      const cleaned = appointments.map(({ _id, ...rest }) => ({
-        ...rest,
-        client_name: clientMap[rest.client_id] || null
-      }))
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase.from('appointments').select('*').order('date', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
     if (route === '/appointments' && method === 'POST') {
       const body = await request.json()
-      const appointment = {
+      const newAppointment = {
         id: uuidv4(),
         ...body,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('appointments').insertOne(appointment)
-      return handleCORS(NextResponse.json(appointment))
+      const { data, error } = await supabase.from('appointments').insert([newAppointment]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/appointments\/[\w-]+$/) && method === 'PUT') {
+    if (route.startsWith('/appointments/') && method === 'PUT') {
       const id = path[1]
       const body = await request.json()
-      const { id: _, _id: __, ...updateData } = body
-      await db.collection('appointments').updateOne(
-        { id },
-        { $set: { ...updateData, updated_at: new Date() } }
-      )
-      const updated = await db.collection('appointments').findOne({ id })
-      const { _id: ___, ...cleaned } = updated
-      return handleCORS(NextResponse.json(cleaned))
+      const { data, error } = await supabase
+        .from('appointments')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
     }
 
-    if (route.match(/^\/appointments\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/appointments/') && method === 'DELETE') {
       const id = path[1]
-      await db.collection('appointments').deleteOne({ id })
+      const { error } = await supabase.from('appointments').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
     }
 
-    // ==================== GENERATED DOCS ====================
-    if (route === '/generated-docs' && method === 'GET') {
-      const docs = await db.collection('generated_docs').find({}).sort({ created_at: -1 }).toArray()
-      const cleaned = docs.map(({ _id, ...rest }) => rest)
-      return handleCORS(NextResponse.json(cleaned))
+    // ==================== CONTRACTS ====================
+    if (route === '/contracts' && method === 'GET') {
+      const { data, error } = await supabase.from('contracts').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
     }
 
-    if (route === '/generated-docs' && method === 'POST') {
+    if (route === '/contracts' && method === 'POST') {
       const body = await request.json()
-      const doc = {
+      const newContract = {
         id: uuidv4(),
         ...body,
-        created_at: new Date()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      await db.collection('generated_docs').insertOne(doc)
-      return handleCORS(NextResponse.json(doc))
+      const { data, error } = await supabase.from('contracts').insert([newContract]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
-    if (route.match(/^\/generated-docs\/[\w-]+$/) && method === 'DELETE') {
+    if (route.startsWith('/contracts/') && method === 'PUT') {
       const id = path[1]
-      await db.collection('generated_docs').deleteOne({ id })
+      const body = await request.json()
+      const { data, error } = await supabase
+        .from('contracts')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
+    }
+
+    if (route.startsWith('/contracts/') && method === 'DELETE') {
+      const id = path[1]
+      const { error } = await supabase.from('contracts').delete().eq('id', id)
+      if (error) throw error
       return handleCORS(NextResponse.json({ success: true }))
+    }
+
+    // ==================== PAYMENTS ====================
+    if (route === '/payments' && method === 'GET') {
+      const { data, error } = await supabase.from('payments').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
+    }
+
+    if (route === '/payments' && method === 'POST') {
+      const body = await request.json()
+      const newPayment = {
+        id: uuidv4(),
+        ...body,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+      const { data, error } = await supabase.from('payments').insert([newPayment]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
+    }
+
+    if (route.startsWith('/payments/') && method === 'PUT') {
+      const id = path[1]
+      const body = await request.json()
+      const { data, error } = await supabase
+        .from('payments')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
+    }
+
+    if (route.startsWith('/payments/') && method === 'DELETE') {
+      const id = path[1]
+      const { error } = await supabase.from('payments').delete().eq('id', id)
+      if (error) throw error
+      return handleCORS(NextResponse.json({ success: true }))
+    }
+
+    // ==================== EXPENSES ====================
+    if (route === '/expenses' && method === 'GET') {
+      const { data, error } = await supabase.from('expenses').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
+    }
+
+    if (route === '/expenses' && method === 'POST') {
+      const body = await request.json()
+      const newExpense = {
+        id: uuidv4(),
+        ...body,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+      const { data, error } = await supabase.from('expenses').insert([newExpense]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
+    }
+
+    if (route.startsWith('/expenses/') && method === 'PUT') {
+      const id = path[1]
+      const body = await request.json()
+      const { data, error } = await supabase
+        .from('expenses')
+        .update({ ...body, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0]))
+    }
+
+    if (route.startsWith('/expenses/') && method === 'DELETE') {
+      const id = path[1]
+      const { error } = await supabase.from('expenses').delete().eq('id', id)
+      if (error) throw error
+      return handleCORS(NextResponse.json({ success: true }))
+    }
+
+    // ==================== PUBLICATIONS ====================
+    if (route === '/publications' && method === 'GET') {
+      const { data, error } = await supabase.from('publications').select('*').order('publication_date', { ascending: false })
+      if (error) throw error
+      return handleCORS(NextResponse.json(data || []))
+    }
+
+    if (route === '/publications' && method === 'POST') {
+      const body = await request.json()
+      const newPublication = {
+        id: uuidv4(),
+        ...body,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+      const { data, error } = await supabase.from('publications').insert([newPublication]).select()
+      if (error) throw error
+      return handleCORS(NextResponse.json(data[0], { status: 201 }))
     }
 
     // ==================== STATS ====================
     if (route === '/stats' && method === 'GET') {
-      const [processes, clients, contracts, payments] = await Promise.all([
-        db.collection('processes').find({}).toArray(),
-        db.collection('clients').find({}).toArray(),
-        db.collection('contracts').find({}).toArray(),
-        db.collection('payments').find({}).toArray()
+      const [
+        { count: processesCount },
+        { count: clientsCount },
+        { count: contractsCount },
+        { data: payments }
+      ] = await Promise.all([
+        supabase.from('processes').select('*', { count: 'exact', head: true }),
+        supabase.from('clients').select('*', { count: 'exact', head: true }),
+        supabase.from('contracts').select('*', { count: 'exact', head: true }),
+        supabase.from('payments').select('amount, status')
       ])
 
-      const stats = {
-        totalProcesses: processes.length,
-        judicialProcesses: processes.filter(p => p.type === 'judicial').length,
-        administrativeProcesses: processes.filter(p => p.type === 'administrative').length,
-        extraJudicialServices: processes.filter(p => p.type === 'extrajudicial').length,
-        totalClients: clients.length,
-        contractValues: contracts.reduce((sum, c) => sum + (c.total_value || 0), 0),
-        receivedValues: payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount || 0), 0),
-        pendingValues: payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + (p.amount || 0), 0)
-      }
+      const totalReceived = (payments || [])
+        .filter(p => p.status === 'paid')
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
 
-      return handleCORS(NextResponse.json(stats))
+      return handleCORS(NextResponse.json({
+        totalProcesses: processesCount || 0,
+        totalClients: clientsCount || 0,
+        totalContracts: contractsCount || 0,
+        totalReceived
+      }))
     }
 
-    // ==================== GENERATE DOCX ====================
-    if (route === '/documents/generate-docx' && method === 'POST') {
-      try {
-        const Docxtemplater = require('docxtemplater')
-        const PizZip = require('pizzip')
-        
-        const body = await request.json()
-        const { file_data, client, lawyer_name, lawyer_oab } = body
-        
-        if (!file_data) {
-          return handleCORS(NextResponse.json({ error: 'No file data' }, { status: 400 }))
-        }
-
-        // Extrair base64 data
-        const base64Data = file_data.split(',')[1]
-        const buffer = Buffer.from(base64Data, 'base64')
-        
-        // Carregar documento com PizZip
-        const zip = new PizZip(buffer)
-        const doc = new Docxtemplater(zip, {
-          paragraphLoop: true,
-          linebreaks: true
-        })
-        
-        // Dados para substituição
-        const today = new Date()
-        const data = {
-          nome: client?.name || '',
-          cpf: client?.cpf || '',
-          rg: client?.rg || '',
-          endereco: [client?.address, client?.address_number, client?.neighborhood, client?.city, client?.state].filter(Boolean).join(', '),
-          telefone: client?.phone_mobile || client?.phone || '',
-          email: client?.email || '',
-          data_nascimento: client?.birth_date ? new Date(client.birth_date).toLocaleDateString('pt-BR') : '',
-          profissao: client?.profession || '',
-          estado_civil: client?.marital_status || '',
-          nome_mae: client?.mother_name || '',
-          nacionalidade: client?.nationality || '',
-          cep: client?.cep || '',
-          cidade: client?.city || '',
-          estado: client?.state || '',
-          bairro: client?.neighborhood || '',
-          data_hoje: today.toLocaleDateString('pt-BR'),
-          data_extenso: today.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
-          advogado: lawyer_name || '',
-          oab: lawyer_oab || ''
-        }
-        
-        // Renderizar documento com substituições
-        doc.render(data)
-        
-        // Gerar buffer do documento final
-        const outputBuffer = doc.getZip().generate({
-          type: 'nodebuffer',
-          compression: 'DEFLATE'
-        })
-        
-        return new NextResponse(outputBuffer, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'Content-Disposition': 'attachment; filename="documento.docx"',
-            'Access-Control-Allow-Origin': '*'
-          }
-        })
-      } catch (error) {
-        console.error('Error generating docx:', error)
-        return handleCORS(NextResponse.json({ error: error.message }, { status: 500 }))
-      }
-    }
-
-    // ==================== PUBLICATIONS (Tribunais) ====================
-    if (route === '/publications/search' && method === 'GET') {
-      const url = new URL(request.url)
-      const oab = url.searchParams.get('oab') || ''
-      const name = url.searchParams.get('name') || ''
-
-      // Simulated response from tribunal APIs
-      // In production, this would call the actual PJe/e-SAJ APIs
-      const mockPublications = []
-      
-      if (oab || name) {
-        // Generate some mock publications for demonstration
-        const courts = ['trt6', 'tjpe', 'jfpe']
-        const subjects = [
-          'Intimação para audiência',
-          'Publicação de sentença',
-          'Despacho de citação',
-          'Movimentação processual',
-          'Decisão interlocutória'
-        ]
-
-        for (let i = 0; i < 3; i++) {
-          mockPublications.push({
-            id: uuidv4(),
-            court: courts[i % 3],
-            process_number: `${String(Math.random()).slice(2, 9)}-${String(Math.random()).slice(2, 4)}.${2024}.8.${String(Math.random()).slice(2, 4)}.0001`,
-            date: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-            content: `${subjects[i % 5]} - Referente à OAB ${oab || 'N/A'} / Advogado(a) ${name || 'N/A'}. Lorem ipsum dolor sit amet, consectetur adipiscing elit.`,
-            link: `https://pje.${courts[i % 3]}.jus.br/consulta`
-          })
-        }
-      }
-
-      return handleCORS(NextResponse.json({ publications: mockPublications }))
-    }
-
-    // Route not found
-    return handleCORS(NextResponse.json(
-      { error: `Route ${route} not found` },
-      { status: 404 }
-    ))
+    // ==================== 404 ====================
+    return handleCORS(NextResponse.json({ error: 'Route not found', route }, { status: 404 }))
 
   } catch (error) {
     console.error('API Error:', error)
-    return handleCORS(NextResponse.json(
-      { error: "Internal server error", details: error.message },
-      { status: 500 }
-    ))
+    return handleCORS(NextResponse.json({ 
+      error: 'Internal server error', 
+      details: error.message 
+    }, { status: 500 }))
   }
 }
 
-// Export all HTTP methods
-export const GET = handleRoute
-export const POST = handleRoute
-export const PUT = handleRoute
-export const DELETE = handleRoute
-export const PATCH = handleRoute
+export async function GET(request, context) {
+  return handleRoute(request, context)
+}
+
+export async function POST(request, context) {
+  return handleRoute(request, context)
+}
+
+export async function PUT(request, context) {
+  return handleRoute(request, context)
+}
+
+export async function DELETE(request, context) {
+  return handleRoute(request, context)
+}
