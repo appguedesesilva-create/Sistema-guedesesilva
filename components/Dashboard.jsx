@@ -50,6 +50,7 @@ import FinancialPage from './pages/FinancialPage'
 import DocumentsPage from './pages/DocumentsPage'
 import PublicationsPage from './pages/PublicationsPage'
 import AppointmentsPage from './pages/AppointmentsPage'
+import SettingsPage from './pages/SettingsPage'
 
 const LOGO_URL = '/logo.png'
 
