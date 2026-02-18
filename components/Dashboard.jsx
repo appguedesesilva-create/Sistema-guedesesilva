@@ -296,6 +296,18 @@ export default function Dashboard({ user, onLogout }) {
           <Button
             variant="ghost"
             size="sm"
+            className={`${sidebarOpen ? 'w-full' : 'w-10 p-0'} mt-2 text-slate-400 hover:bg-slate-700/50 hover:text-white`}
+            onClick={() => {
+              setActivePage('settings')
+              setMobileMenuOpen(false)
+            }}
+          >
+            <Settings className="h-4 w-4" />
+            {sidebarOpen && <span className="ml-2">Configurações</span>}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             className={`${sidebarOpen ? 'w-full' : 'w-10 p-0'} mt-2 text-red-400 hover:bg-red-500/20 hover:text-red-300`}
             onClick={handleLogout}
           >
