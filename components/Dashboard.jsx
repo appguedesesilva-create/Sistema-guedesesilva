@@ -171,6 +171,8 @@ export default function Dashboard({ user, onLogout }) {
         return <PublicationsPage user={user} />
       case 'appointments':
         return <AppointmentsPage user={user} />
+      case 'settings':
+        return <SettingsPage user={user} darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
       default:
         return <WorkspacePage user={user} />
     }
